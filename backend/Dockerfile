@@ -10,8 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
-# Pre-download BGE-M3 model during build
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')" || true
+# Pre-download embedding model during build (configurable via build-arg)
+ARG EMBEDDING_MODEL=BAAI/bge-m3
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}')" || true
 
 COPY . .
 

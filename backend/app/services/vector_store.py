@@ -12,19 +12,23 @@ log = logging.getLogger(__name__)
 _vector_store: Optional["VectorStore"] = None
 
 
-class VectorStore:
-    COLLECTION_NAME = "vnd_documents"
+def _collection_name_for_model(model: str) -> str:
+    """documents_BAAI_bge-m3, documents_intfloat_multilingual-e5-large, etc."""
+    return "documents_" + model.replace("/", "_")
 
+
+class VectorStore:
     def __init__(self):
+        self.collection_name = _collection_name_for_model(settings.embedding_model)
         self.client = chromadb.PersistentClient(
             path=settings.chroma_persist_dir,
             settings=ChromaSettings(anonymized_telemetry=False),
         )
         self.collection = self.client.get_or_create_collection(
-            name=self.COLLECTION_NAME,
+            name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        log.info(f"ChromaDB: коллекция '{self.COLLECTION_NAME}', документов: {self.collection.count()}")
+        log.info(f"ChromaDB: коллекция '{self.collection_name}', документов: {self.collection.count()}")
 
     def search(
         self,

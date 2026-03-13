@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
 
-    # BGE-M3
-    bge_model_name: str = "BAAI/bge-m3"
+    # Embedding model (изменение вызывает переиндексацию ChromaDB)
+    embedding_model: str = "BAAI/bge-m3"
 
     # App
     log_level: str = "INFO"

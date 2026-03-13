@@ -12,7 +12,7 @@ def get_embedder():
     if _embedder is None:
         from sentence_transformers import SentenceTransformer
         from app.config import settings
-        _embedder = SentenceTransformer(settings.bge_model_name)
+        _embedder = SentenceTransformer(settings.embedding_model)
     return _embedder
 
 

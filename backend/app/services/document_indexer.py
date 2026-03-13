@@ -14,8 +14,8 @@ def get_embedder():
     if _embedder is None:
         from sentence_transformers import SentenceTransformer
         from app.config import settings
-        log.info(f"Загружаем модель {settings.bge_model_name}...")
-        _embedder = SentenceTransformer(settings.bge_model_name)
+        log.info(f"Загружаем модель {settings.embedding_model}...")
+        _embedder = SentenceTransformer(settings.embedding_model)
         log.info("Модель загружена")
     return _embedder
 

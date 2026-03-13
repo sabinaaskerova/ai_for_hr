@@ -21,13 +21,15 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/hr_goals
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       CHROMA_PERSIST_DIR: /app/chroma_data
-      BGE_MODEL_NAME: BAAI/bge-m3
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
       LLM_MODEL: claude-sonnet-4-20250514
       LLM_TEMPERATURE_EVAL: "0"
       LLM_TEMPERATURE_GEN: "0.3"

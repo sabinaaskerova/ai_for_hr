@@ -57,10 +57,10 @@ async def startup_event():
         from app.services.document_indexer import index_all_documents
         vs = await get_vector_store()
         if vs.count() == 0:
-            log.info("ChromaDB пуст. Запускаем индексацию ВНД...")
+            log.info(f"Коллекция '{vs.collection_name}' пуста. Запускаем индексацию ВНД...")
             await index_all_documents()
         else:
-            log.info(f"ChromaDB: {vs.count()} чанков")
+            log.info(f"ChromaDB '{vs.collection_name}': {vs.count()} чанков")
     except Exception as e:
         log.warning(f"ChromaDB не инициализирован: {e}")
 
