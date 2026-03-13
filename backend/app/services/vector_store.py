@@ -74,6 +74,15 @@ class VectorStore:
     def count(self) -> int:
         return self.collection.count()
 
+    def clear_collection(self) -> None:
+        """Удаляет и пересоздаёт коллекцию (для ручной переиндексации через --force)."""
+        self.client.delete_collection(self.collection_name)
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        log.info(f"ChromaDB: коллекция '{self.collection_name}' очищена")
+
 
 async def get_vector_store() -> VectorStore:
     global _vector_store

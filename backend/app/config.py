@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # Embedding model (изменение вызывает переиндексацию ChromaDB)
     embedding_model: str = "BAAI/bge-m3"
 
+    # Reranker (опционально, включается через USE_RERANKER=true)
+    use_reranker: bool = False
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+
     # App
     log_level: str = "INFO"
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]

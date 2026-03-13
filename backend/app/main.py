@@ -31,7 +31,7 @@ async def startup_event():
     log.info("Создание таблиц БД...")
     await create_tables()
 
-    # Seed data if empty
+    # Seed data if employees table is empty
     try:
         import sys
         import os
@@ -40,27 +40,52 @@ async def startup_event():
             sys.path.insert(0, _scripts_dir)
 
         from app.database import AsyncSessionLocal
-        from app.models import Department
-        from sqlalchemy import select
+        from app.models import Employee
+        from sqlalchemy import select, func
         async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Department).limit(1))
-            if not result.scalar_one_or_none():
-                log.info("База данных пуста. Запускаем seed...")
+            result = await session.execute(select(func.count()).select_from(Employee))
+            emp_count = result.scalar()
+            if not emp_count:
+                log.info("Таблица employees пуста. Запускаем seed...")
                 from seed_database import seed_all
                 await seed_all(session)
+            else:
+                log.info(f"БД: {emp_count} сотрудников, seed не нужен")
     except Exception as e:
         log.error(f"Ошибка при seed: {e}")
 
-    # Init vector store + index documents if needed
+    # Init ChromaDB — пропускаем если коллекция уже синхронизирована с PostgreSQL
     try:
+        from app.database import AsyncSessionLocal
+        from app.models import Document
+        from sqlalchemy import select, func
         from app.services.vector_store import get_vector_store
         from app.services.document_indexer import index_all_documents
+
         vs = await get_vector_store()
-        if vs.count() == 0:
-            log.info(f"Коллекция '{vs.collection_name}' пуста. Запускаем индексацию ВНД...")
+        chroma_count = vs.count()
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(func.count()).select_from(Document).where(Document.is_active == True)
+            )
+            pg_doc_count = result.scalar()
+
+        if chroma_count == 0:
+            log.info(f"Коллекция '{vs.collection_name}' пуста. Индексируем {pg_doc_count} документов...")
             await index_all_documents()
         else:
-            log.info(f"ChromaDB '{vs.collection_name}': {vs.count()} чанков")
+            if chroma_count < pg_doc_count:
+                log.warning(
+                    f"ChromaDB '{vs.collection_name}': {chroma_count} чанков < {pg_doc_count} документов в PG. "
+                    f"Возможна неполная индексация. Запустите: python -m app.scripts.index_documents"
+                )
+            else:
+                log.info(f"ChromaDB '{vs.collection_name}': {chroma_count} чанков, PG: {pg_doc_count} документов — OK")
+
+        # BM25 индекс строим после ChromaDB (всегда, независимо от состояния)
+        from app.core.rag import build_bm25_index
+        await build_bm25_index()
     except Exception as e:
         log.warning(f"ChromaDB не инициализирован: {e}")
 
