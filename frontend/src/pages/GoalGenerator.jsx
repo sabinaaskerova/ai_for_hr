@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Sparkles, Loader2, Search, User, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import clsx from 'clsx'
 import GoalCard from '../components/GoalCard'
-import { getEmployees, generateGoals, getDepartments } from '../api/client'
+import { getEmployees, getDepartments } from '../api/client'
+import { saveToHistory } from '../utils/history'
 
 const QUARTERS = ['2025-Q1', '2025-Q2', '2025-Q3', '2025-Q4', '2026-Q1', '2026-Q2']
 
@@ -16,7 +17,11 @@ export default function GoalGenerator() {
   const [nGoals, setNGoals] = useState(4)
   const [focus, setFocus] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
+  const [streamingGoals, setStreamingGoals] = useState([])
+  const [streamProgress, setStreamProgress] = useState(null) // {current, total}
+  const [warnings, setWarnings] = useState([])
+  const [totalWeight, setTotalWeight] = useState(0)
+  const [result, setResult] = useState(null) // финальный объект (совместимость)
   const [error, setError] = useState(null)
   const [acceptedIds, setAcceptedIds] = useState(new Set())
   const [rejectedIds, setRejectedIds] = useState(new Set())
@@ -48,25 +53,79 @@ export default function GoalGenerator() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setStreamingGoals([])
+    setStreamProgress(null)
+    setWarnings([])
+    setTotalWeight(0)
     setAcceptedIds(new Set())
     setRejectedIds(new Set())
+
+    const collectedGoals = []
+    let finalWarnings = []
+    let finalWeight = 0
+
     try {
-      const res = await generateGoals({
-        employee_id: selectedEmp.id,
-        quarter,
-        focus_priorities: focus || undefined,
-        n_goals: nGoals,
+      const response = await fetch('/api/v1/generate/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: selectedEmp.id,
+          quarter,
+          focus_priorities: focus || undefined,
+          n_goals: nGoals,
+        }),
       })
-      setResult(res)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // последняя (возможно неполная) строка
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === 'start') {
+              setStreamProgress({ current: 0, total: event.total })
+            } else if (event.type === 'goal') {
+              collectedGoals.push(event.goal)
+              setStreamingGoals([...collectedGoals])
+              setStreamProgress({ current: event.index + 1, total: event.index + 1 })
+            } else if (event.type === 'done') {
+              finalWarnings = event.warnings || []
+              finalWeight = event.total_weight || 0
+              setWarnings(finalWarnings)
+              setTotalWeight(finalWeight)
+              setResult({ goals: collectedGoals, warnings: finalWarnings, total_weight: finalWeight })
+              saveToHistory({
+                type: 'generation',
+                employee: { id: selectedEmp.id, name: selectedEmp.full_name, position: selectedEmp.position, department: selectedEmp.department_name },
+                quarter,
+                goals: collectedGoals,
+                warnings: finalWarnings,
+                total_weight: finalWeight,
+              })
+            } else if (event.type === 'error') {
+              setError(event.message)
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
+      setStreamProgress(null)
     }
   }
 
-  const goals = result?.goals ?? []
-  const totalWeight = goals.reduce((s, g) => s + (g.weight || 0), 0)
+  const goals = streamingGoals.length > 0 ? streamingGoals : (result?.goals ?? [])
   const typeDist = goals.reduce((acc, g) => {
     acc[g.goal_type] = (acc[g.goal_type] || 0) + 1
     return acc
@@ -185,8 +244,8 @@ export default function GoalGenerator() {
         </button>
       </div>
 
-      {/* Loading state */}
-      {loading && (
+      {/* Loading state (только пока нет ни одной цели ещё) */}
+      {loading && goals.length === 0 && (
         <div className="card text-center py-12">
           <Loader2 className="w-10 h-10 animate-spin text-navy-500 mx-auto mb-4" />
           <div className="font-medium text-gray-700">AI генерирует цели...</div>
@@ -194,8 +253,8 @@ export default function GoalGenerator() {
         </div>
       )}
 
-      {/* Results */}
-      {result && !loading && (
+      {/* Results (показываем как только появляется первая цель) */}
+      {goals.length > 0 && (
         <>
           {/* Summary bar */}
           <div className="card mb-4 flex flex-wrap items-center gap-6">
@@ -207,7 +266,14 @@ export default function GoalGenerator() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-navy-700">{goals.length}</div>
-              <div className="text-xs text-gray-500">Целей</div>
+              <div className="text-xs text-gray-500">
+                {loading ? (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    генерируем...
+                  </span>
+                ) : 'Целей'}
+              </div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-emerald-600">{acceptedIds.size}</div>
@@ -227,7 +293,7 @@ export default function GoalGenerator() {
                 )
               })}
             </div>
-            {result.warnings?.map((w, i) => (
+            {warnings.map((w, i) => (
               <div key={i} className="flex items-start gap-2 text-amber-700 bg-amber-50 rounded-lg px-3 py-2 text-xs">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                 {w}
@@ -252,6 +318,13 @@ export default function GoalGenerator() {
                 )}
               </div>
             ))}
+            {/* Индикатор что ещё идёт генерация */}
+            {loading && (
+              <div className="card border-dashed border-2 border-navy-200 bg-navy-50 py-6 text-center">
+                <Loader2 className="w-6 h-6 animate-spin text-navy-400 mx-auto mb-2" />
+                <div className="text-sm text-navy-500">Обрабатываем следующую цель...</div>
+              </div>
+            )}
           </div>
         </>
       )}

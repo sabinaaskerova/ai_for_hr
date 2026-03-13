@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { BarChart3, Target, Sparkles, FileSearch, Activity } from 'lucide-react'
+import { BarChart3, Target, Sparkles, FileSearch, Activity, History } from 'lucide-react'
 import clsx from 'clsx'
 
 const links = [
@@ -7,6 +7,7 @@ const links = [
   { to: '/generate', label: 'Генерация целей', icon: Sparkles },
   { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
   { to: '/documents', label: 'Документы (ВНД)', icon: FileSearch },
+  { to: '/history', label: 'История', icon: History },
 ]
 
 export default function Sidebar() {

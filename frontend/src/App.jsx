@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import HistoryPage from './pages/History'
 import GoalEvaluator from './pages/GoalEvaluator'
 import GoalGenerator from './pages/GoalGenerator'
 import Analytics from './pages/Analytics'
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/generate" element={<GoalGenerator />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/documents" element={<DocumentBrowser />} />
+          <Route path="/history" element={<HistoryPage />} />
         </Routes>
       </main>
     </div>

@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import SmartRadarChart from '../components/SmartRadarChart'
 import BeforeAfter from '../components/BeforeAfter'
 import { evaluateGoal, reformulateGoal, getDepartments } from '../api/client'
+import { saveToHistory } from '../utils/history'
 
 const GOAL_TYPE_CONFIG = {
   'impact-based': { label: 'Impact-based', color: 'bg-emerald-100 text-emerald-700' },
@@ -91,6 +92,7 @@ export default function GoalEvaluator() {
     try {
       const res = await evaluateGoal(form)
       setResult(res)
+      saveToHistory({ type: 'evaluation', input: form, result: res })
     } catch (e) {
       setError(e.message)
     } finally {
