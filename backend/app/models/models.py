@@ -242,3 +242,18 @@ class KpiTimeseries(Base):
     )
 
     department: Mapped["Department"] = relationship("Department", back_populates="kpi_timeseries")
+
+
+class AiRequestLog(Base):
+    __tablename__ = "ai_request_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    endpoint: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g. "evaluate", "generate"
+    input_text: Mapped[Optional[str]] = mapped_column(Text)  # цель или запрос
+    output_text: Mapped[Optional[str]] = mapped_column(Text)  # ответ LLM (сокращённый)
+    model: Mapped[Optional[str]] = mapped_column(String(100))
+    temperature: Mapped[Optional[float]] = mapped_column(Float)
+    tokens_used: Mapped[Optional[int]] = mapped_column(Integer)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    from_cache: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

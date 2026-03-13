@@ -45,6 +45,8 @@ export const getDepartmentAnalytics = (deptId, quarter) =>
 export const searchDocuments = (data) =>
   request('/documents/search', { method: 'POST', body: JSON.stringify(data) })
 
+export const getDocument = (id) => request(`/documents/${id}`)
+
 // ─── Employees ────────────────────────────────────────────────────────────────
 
 export const getEmployees = (search, departmentId) => {

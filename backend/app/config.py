@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     use_reranker: bool = False
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # HuggingFace token (опционально, для приватных/gated моделей)
+    hf_token: str = ""
+
     # App
     log_level: str = "INFO"
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { FileSearch, Search, Loader2, BookOpen, X } from 'lucide-react'
+import { FileSearch, Search, Loader2, BookOpen, X, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
-import { searchDocuments, getDepartments } from '../api/client'
+import { searchDocuments, getDepartments, getDocument } from '../api/client'
 
 const DOC_TYPES = [
   { value: '', label: 'Все типы' },
@@ -27,6 +27,67 @@ function highlightText(text, query) {
   )
 }
 
+function DocumentModal({ docId, onClose }) {
+  const [doc, setDoc] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    getDocument(docId)
+      .then(setDoc)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [docId])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="flex items-start justify-between gap-4 p-6 border-b border-gray-100">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <BookOpen className="w-5 h-5 text-navy-600 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              {loading ? (
+                <div className="h-5 w-48 bg-gray-200 rounded animate-pulse" />
+              ) : doc ? (
+                <>
+                  <h2 className="font-bold text-navy-900 text-base leading-snug">{doc.title}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    {doc.department_name && (
+                      <span className="text-xs text-gray-400">{doc.department_name}</span>
+                    )}
+                    {doc.doc_type && (
+                      <span className={clsx('badge text-xs', TYPE_CONFIG[doc.doc_type]?.color ?? 'bg-gray-100 text-gray-600')}>
+                        {TYPE_CONFIG[doc.doc_type]?.label ?? doc.doc_type}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 flex-shrink-0 mt-0.5">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading && (
+            <div className="flex items-center gap-3 text-gray-400">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Загружаем документ...
+            </div>
+          )}
+          {error && <div className="text-red-600 text-sm">{error}</div>}
+          {doc && (
+            <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700 leading-relaxed">
+              {doc.content}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DocumentBrowser() {
   const [query, setQuery] = useState('')
   const [deptId, setDeptId] = useState('')
@@ -35,6 +96,7 @@ export default function DocumentBrowser() {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
+  const [modalDocId, setModalDocId] = useState(null)
 
   useEffect(() => {
     getDepartments().then(setDepartments).catch(() => {})
@@ -71,6 +133,10 @@ export default function DocumentBrowser() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
+      {modalDocId && (
+        <DocumentModal docId={modalDocId} onClose={() => setModalDocId(null)} />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-8">
         <div className="w-10 h-10 rounded-xl bg-navy-700 flex items-center justify-center">
@@ -199,9 +265,17 @@ export default function DocumentBrowser() {
                     </div>
 
                     {/* Relevant chunk */}
-                    <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 leading-relaxed border border-gray-100">
+                    <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 leading-relaxed border border-gray-100 mb-3">
                       {highlightText(doc.chunk_text, query)}
                     </div>
+
+                    <button
+                      onClick={() => setModalDocId(doc.doc_id)}
+                      className="flex items-center gap-1.5 text-xs text-navy-600 hover:text-navy-800 font-medium transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Открыть полный документ
+                    </button>
                   </div>
                 )
               })}

@@ -15,7 +15,10 @@ def get_embedder():
         from sentence_transformers import SentenceTransformer
         from app.config import settings
         log.info(f"Загружаем модель {settings.embedding_model}...")
-        _embedder = SentenceTransformer(settings.embedding_model)
+        kwargs = {}
+        if settings.hf_token:
+            kwargs["token"] = settings.hf_token
+        _embedder = SentenceTransformer(settings.embedding_model, **kwargs)
         log.info("Модель загружена")
     return _embedder
 
