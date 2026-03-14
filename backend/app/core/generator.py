@@ -5,7 +5,7 @@ from typing import Optional, AsyncGenerator
 from app.config import settings
 from app.core import prompts
 from app.core.llm_client import call_llm_json
-from app.core.schemas import GeneratedGoal, EvaluateRequest
+from app.core.schemas import GeneratedGoal, EvaluateRequest, CascadeSource
 
 log = logging.getLogger(__name__)
 
@@ -118,13 +118,32 @@ async def generate_goals_stream(
         if not raw.get("goal_text", ""):
             continue
         goal = await _self_check_goal(raw, position, department, quarter, rag_chunks, kpi_data, rag_context)
+
+        # F-14: определяем, каскадирована ли цель от цели руководителя
+        if manager_goals:
+            sims = [(mg, _simple_similarity(goal.goal_text, [mg])) for mg in manager_goals]
+            best_mg, best_sim = max(sims, key=lambda x: x[1])
+            if best_sim >= 0.25:  # порог — хоть какое-то семантическое пересечение
+                goal = goal.model_copy(update={
+                    "cascade_from": CascadeSource(manager_name=manager_name, manager_goal=best_mg)
+                })
+
         result_goals.append(goal)
         yield {"type": "goal", "index": i, "goal": goal.model_dump()}
 
-    # Дублирование с существующими целями
+    # F-21: дублирование внутри самого набора сгенерированных целей
+    for i, g1 in enumerate(result_goals):
+        for j, g2 in enumerate(result_goals):
+            if i >= j:
+                continue
+            sim = _simple_similarity(g1.goal_text, [g2.goal_text])
+            if sim > 0.6:
+                warnings.append(f"Возможное дублирование: цель #{i+1} и цель #{j+1} похожи ({int(sim*100)}% сходства)")
+
+    # F-21: дублирование с существующими целями сотрудника
     for g in result_goals:
         if existing_goals and _simple_similarity(g.goal_text, existing_goals) > 0.7:
-            warnings.append(f"Возможное дублирование: «{g.goal_text[:80]}…»")
+            warnings.append(f"Возможное дублирование с существующей целью: «{g.goal_text[:80]}…»")
 
     if all(g.goal_type == "activity-based" for g in result_goals) and result_goals:
         warnings.append("Все цели activity-based. Рекомендуется добавить output-based или impact-based.")

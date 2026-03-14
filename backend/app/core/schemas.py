@@ -61,6 +61,7 @@ class EvaluateResponse(BaseModel):
     smart_index: float                  # 0.0-1.0
     recommendations: list[str]          # собранные рекомендации по всем критериям
     improved_goal: Optional[str] = None # переформулировка если слабая цель
+    achievability_warning: Optional[str] = None  # F-20: предупреждение на основе истории
     # Расширенные поля для фронтенда
     smart_detail: SmartEvaluationResult
     strategic_link: StrategicLinkResult
@@ -129,6 +130,11 @@ class ReformulateResponse(BaseModel):
 
 # ─── Generator ────────────────────────────────────────────────────────────────
 
+class CascadeSource(BaseModel):
+    manager_name: str
+    manager_goal: str  # текст цели руководителя, от которой каскадирована
+
+
 class GeneratedGoal(BaseModel):
     goal_text: str
     metric: str
@@ -142,6 +148,7 @@ class GeneratedGoal(BaseModel):
     smart_scores: Optional[SmartScores] = None
     smart_index: Optional[float] = None
     requires_review: bool = False
+    cascade_from: Optional[CascadeSource] = None  # F-14: источник каскадирования
 
 
 class GenerateRequest(BaseModel):

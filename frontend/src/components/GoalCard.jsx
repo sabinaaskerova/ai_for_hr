@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, BookOpen } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, BookOpen, GitBranch } from 'lucide-react'
 import clsx from 'clsx'
 import SmartRadarChart from './SmartRadarChart'
 
@@ -67,6 +67,21 @@ export default function GoalCard({ goal, onAccept, onReject, onEdit, showActions
           <span className="badge bg-gray-100 text-gray-600">До {goal.deadline}</span>
         )}
       </div>
+
+      {/* F-14: Каскадирование от руководителя */}
+      {goal.cascade_from && (
+        <div className="flex items-start gap-2 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2 mb-3">
+          <GitBranch className="w-3.5 h-3.5 text-purple-500 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <span className="text-xs font-semibold text-purple-700">
+              Каскадировано от: {goal.cascade_from.manager_name}
+            </span>
+            <p className="text-xs text-purple-600 mt-0.5 line-clamp-2 italic">
+              «{goal.cascade_from.manager_goal}»
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Metric */}
       {goal.metric && (

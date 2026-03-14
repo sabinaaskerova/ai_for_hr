@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Target, Loader2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { Target, Loader2, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import SmartRadarChart from '../components/SmartRadarChart'
 import BeforeAfter from '../components/BeforeAfter'
@@ -237,6 +237,19 @@ export default function GoalEvaluator() {
                 <p className="text-xs text-gray-500 mt-1.5">{link?.reasoning}</p>
               </div>
             </div>
+
+            {/* F-20: предупреждение о достижимости */}
+            {result.achievability_warning && (
+              <div className="card border border-orange-200 bg-orange-50">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-orange-700 mb-1">Достижимость (исторические данные)</div>
+                    <p className="text-xs text-orange-600">{result.achievability_warning}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Рекомендации (из ТЗ: recommendations[]) */}
             {result.recommendations?.length > 0 && (

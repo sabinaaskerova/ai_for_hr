@@ -74,6 +74,24 @@ async def evaluate_goal(
         if smart_result.reformulation_suggested and smart_result.reformulation_hint:
             improved_goal = smart_result.reformulation_hint
 
+        # F-20: проверка достижимости на основе исторических данных
+        achievability_warning = None
+        if dept_id:
+            try:
+                from app.services.goal_service import get_similar_goals
+                similar = await get_similar_goals(db, request.goal_text, dept_id, request.position)
+                if similar:
+                    rejected = [g for g in similar if g.get("verdict") == "rejected"]
+                    rejection_rate = len(rejected) / len(similar)
+                    if rejection_rate > 0.5:
+                        achievability_warning = (
+                            f"⚠ Предупреждение о достижимости: {len(rejected)} из {len(similar)} похожих целей "
+                            f"в этом подразделении были отклонены ({int(rejection_rate*100)}%). "
+                            f"Проверьте реалистичность цели."
+                        )
+            except Exception as e:
+                log.warning(f"Ошибка F-20 проверки достижимости: {e}")
+
         return EvaluateResponse(
             goal_id=request.goal_id,
             goal_text=request.goal_text,
@@ -81,6 +99,7 @@ async def evaluate_goal(
             smart_index=smart_result.smart_index,
             recommendations=recommendations,
             improved_goal=improved_goal,
+            achievability_warning=achievability_warning,
             smart_detail=smart_result,
             strategic_link=strategic_result,
         )
