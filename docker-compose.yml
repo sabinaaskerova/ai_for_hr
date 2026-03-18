@@ -8,11 +8,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d hr_goals"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d hr_goals" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,24 +22,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-azure}
     ports:
-      - "8000:8000"
+      - "8010:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/hr_goals
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       CHROMA_PERSIST_DIR: /app/chroma_data
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
-      LLM_MODEL: claude-sonnet-4-20250514
-      LLM_TEMPERATURE_EVAL: "0"
-      LLM_TEMPERATURE_GEN: "0.3"
-      LOG_LEVEL: INFO
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - chroma_data:/app/chroma_data
       - ./backend/data:/app/data
+      - ./hackathon_db:/app/hackathon_db
     restart: unless-stopped
 
   frontend:
@@ -47,7 +44,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "5174:5174"
     environment:
       BACKEND_URL: http://backend:8000
     depends_on:

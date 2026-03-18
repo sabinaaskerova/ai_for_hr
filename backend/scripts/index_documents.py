@@ -12,26 +12,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 async def main():
-    force = "--force" in sys.argv
+    clear = "--clear" in sys.argv
+    limit = None
+    offset = 0
+    for arg in sys.argv:
+        if arg.startswith("--limit="):
+            limit = int(arg.split("=")[1])
+        if arg.startswith("--offset="):
+            offset = int(arg.split("=")[1])
 
     from app.services.vector_store import get_vector_store
     vs = await get_vector_store()
-
-    if vs.count() > 0 and not force:
-        print(f"ChromaDB уже содержит {vs.count()} чанков. Используйте --force для переиндексации.")
-        return
-
-    if force and vs.count() > 0:
+    if clear:
         print("Очищаем коллекцию...")
-        from app.services.vector_store import _vector_store
-        import chromadb
-        from app.config import settings
-        client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
-        client.delete_collection("vnd_documents")
-        print("Коллекция удалена.")
+        vs.clear_collection()
+        print("Коллекция очищена.")
 
     from app.services.document_indexer import index_all_documents
-    await index_all_documents()
+    await index_all_documents(limit=limit, offset=offset)
 
 
 if __name__ == "__main__":

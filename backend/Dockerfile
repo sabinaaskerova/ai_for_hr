@@ -11,8 +11,10 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
 # Pre-download embedding model during build (configurable via build-arg)
-ARG EMBEDDING_MODEL=BAAI/bge-m3
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}')" || true
+ARG EMBEDDING_MODEL=azure
+RUN if [ "$EMBEDDING_MODEL" != "azure" ] && [ "${EMBEDDING_MODEL#azure}" = "$EMBEDDING_MODEL" ]; then \
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}')" || true; \
+    fi
 
 COPY . .
 

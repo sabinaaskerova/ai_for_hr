@@ -9,18 +9,7 @@ log = logging.getLogger(__name__)
 _embedder = None
 
 
-def get_embedder():
-    global _embedder
-    if _embedder is None:
-        from sentence_transformers import SentenceTransformer
-        from app.config import settings
-        log.info(f"Загружаем модель {settings.embedding_model}...")
-        kwargs = {}
-        if settings.hf_token:
-            kwargs["token"] = settings.hf_token
-        _embedder = SentenceTransformer(settings.embedding_model, **kwargs)
-        log.info("Модель загружена")
-    return _embedder
+from app.core.embeddings import get_embedder
 
 
 def chunk_document(
@@ -105,68 +94,115 @@ def _section_split(content: str, doc_title: str) -> list[tuple[str, str]]:
 
 def _recursive_split(content: str, max_size: int, overlap: int) -> list[tuple[str, str]]:
     """Простой рекурсивный сплиттер."""
+    if not content:
+        return []
+    if len(content) <= max_size:
+        return [("", content.strip())]
+
     chunks = []
     start = 0
     while start < len(content):
         end = min(start + max_size, len(content))
-        # Ищем ближайший разрыв абзаца
         if end < len(content):
             boundary = content.rfind("\n\n", start, end)
             if boundary > start + overlap:
                 end = boundary
-        chunks.append(("", content[start:end].strip()))
+        
+        chunk_text = content[start:end].strip()
+        if chunk_text:
+            chunks.append(("", chunk_text))
+            
+        if end >= len(content):
+            break
+            
         start = end - overlap
-        if start >= len(content):
+        # Prevent infinite loop if start doesn't progress
+        if start <= 0 and end > 0:
+            # Should not happen with valid max_size/overlap but be safe
             break
     return chunks
 
 
-async def index_all_documents(db=None):
-    """Индексируем все документы из БД в ChromaDB."""
+async def index_all_documents(limit: Optional[int] = None, offset: Optional[int] = 0):
+    """Индексируем все документы из БД в ChromaDB с поддержкой лимита."""
     from app.database import AsyncSessionLocal
     from app.models import Document, Department
     from sqlalchemy import select
     from app.services.vector_store import get_vector_store
 
     vs = await get_vector_store()
-    if vs.count() > 0:
-        log.info(f"ChromaDB уже содержит {vs.count()} чанков. Пропускаем индексацию.")
-        return
+    # Skip existence check here to allow partial indexing with offset/limit
 
     embedder = get_embedder()
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Document, Department)
-            .outerjoin(Department, Document.department_id == Department.id)
+        # Load all IDs first to avoid keeping a large stream open
+        query = (
+            select(Document.id)
             .where(Document.is_active == True)
+            .order_by(Document.id)
         )
-        rows = result.all()
+        if limit:
+            query = query.limit(limit)
+        if offset:
+            query = query.offset(offset)
+            
+        result = await session.execute(query)
+        doc_ids = [r[0] for r in result.all()]
 
-    log.info(f"Индексируем {len(rows)} документов...")
-    all_chunks = []
-
-    for doc, dept in rows:
-        chunks = chunk_document(
-            content=doc.content,
-            title=doc.title,
-            doc_id=doc.id,
-            doc_type=doc.doc_type,
-            department_id=doc.department_id,
-            department_name=dept.name if dept else None,
-        )
-        for chunk in chunks:
-            all_chunks.append(chunk)
-
-    # Batch embedding
-    BATCH = 32
-    for i in range(0, len(all_chunks), BATCH):
-        batch = all_chunks[i:i + BATCH]
-        texts = [c["text"] for c in batch]
-        embeddings = embedder.encode(texts, normalize_embeddings=True).tolist()
-        for chunk, emb in zip(batch, embeddings):
-            chunk["embedding"] = emb
-        vs.add_chunks(batch)
-        log.info(f"  Проиндексировано {min(i + BATCH, len(all_chunks))}/{len(all_chunks)} чанков")
+    log.info(f"Найдено {len(doc_ids)} документов для индексации...")
+    
+    total_chunks = 0
+    import gc
+    for doc_id in doc_ids:
+        try:
+            # Fresh connection for each document to really clear memory
+            async with AsyncSessionLocal() as session:
+                res = await session.execute(
+                    select(Document, Department)
+                    .outerjoin(Department, Document.department_id == Department.id)
+                    .where(Document.id == doc_id)
+                )
+                row = res.one_or_none()
+                if not row:
+                    continue
+                doc, dept = row
+                
+                log.info(f"Документ ID={doc.id}: '{doc.title[:50]}...'")
+                chunks = chunk_document(
+                    content=doc.content,
+                    title=doc.title,
+                    doc_id=doc.id,
+                    doc_type=doc.doc_type,
+                    department_id=doc.department_id,
+                    department_name=dept.name if dept else None,
+                )
+                
+                if not chunks:
+                    log.info(f"  Чанков нет, пропускаем.")
+                    continue
+                
+                log.info(f"  Разбито на {len(chunks)} чанков. Индексируем...")
+                    
+                BATCH = 20 
+                for i in range(0, len(chunks), BATCH):
+                    batch = chunks[i:i + BATCH]
+                    texts = [c["text"] for c in batch]
+                    embeddings = embedder.encode(
+                        texts, 
+                        normalize_embeddings=True,
+                        batch_size=BATCH,
+                        show_progress_bar=False
+                    )
+                    for chunk, emb in zip(batch, embeddings):
+                        chunk["embedding"] = emb.tolist()
+                    vs.add_chunks(batch)
+                    
+                total_chunks += len(chunks)
+                log.info(f"  Готово (ID={doc_id})")
+        except Exception as e:
+            log.error(f"Ошибка при обработке документа {doc_id}: {e}")
+            
+        gc.collect()
 
     log.info(f"Индексация завершена. Всего чанков: {vs.count()}")

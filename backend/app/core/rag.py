@@ -24,13 +24,7 @@ _bm25_corpus: list[dict] = []  # [{id, text, metadata}, ...]
 
 # ─── Embedder / Reranker ──────────────────────────────────────────────────────
 
-def get_embedder():
-    global _embedder
-    if _embedder is None:
-        from sentence_transformers import SentenceTransformer
-        from app.config import settings
-        _embedder = SentenceTransformer(settings.embedding_model)
-    return _embedder
+from app.core.embeddings import get_embedder
 
 
 def get_reranker():

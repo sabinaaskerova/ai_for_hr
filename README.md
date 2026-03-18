@@ -114,7 +114,7 @@ docker run -d --name pg16 \
   -e POSTGRES_DB=hr_goals \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
+  -p 5433:5432 \
   postgres:16
 
 # Запустить backend (автоматически создаст таблицы и заполнит данными)
@@ -132,18 +132,60 @@ npm run dev
 
 ---
 
+## Импорт реальных данных hackathon_db
+
+1. Убедитесь, что локальная PostgreSQL поднята, а `DATABASE_URL` в `.env` указывает на нужную базу.
+2. Данные хранятся в каталоге `hackathon_db` рядом с проектом (`../hackathon_db` относительно `backend/scripts`). Если папка в другом месте, передайте путь через `--data-dir`.
+   - При запуске через Docker добавьте volume в `docker-compose.yml` для сервиса backend: `- ./hackathon_db:/app/hackathon_db`, иначе контейнер не увидит CSV.
+3. Активируйте виртуальное окружение backend и выполните:
+
+```bash
+cd backend
+python -m scripts.import_hackathon_data --data-dir ../../hackathon_db
+# опции:
+#   --skip-truncate      импорт без очистки таблиц
+#   --limit-goals 500    загрузить ограниченное число целей (для отладки)
+```
+
+Скрипт очистит таблицы (`departments`, `employees`, `documents`, `goals`, `goal_events`, `goal_reviews`, `kpi_timeseries`) и наполнит их значениями из CSV.
+
+4. После загрузки нужно переиндексировать документы для ChromaDB:
+
+```bash
+python -m scripts.index_documents --force
+```
+
+5. При необходимости проверьте объёмы в БД:
+
+```sql
+SELECT COUNT(*) FROM goals;
+SELECT COUNT(*) FROM goal_events;
+SELECT COUNT(*) FROM documents;
+```
+
+Теперь backend и RAG будут работать на реальных данных хакатона.
+
+---
+
 ## Переменные окружения
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `ANTHROPIC_API_KEY` | **Обязательно.** Ключ Anthropic API | — |
+| `ANTHROPIC_API_KEY` | Ключ Anthropic API (используется при `LLM_PROVIDER=anthropic`) | — |
 | `DATABASE_URL` | Строка подключения к PostgreSQL | `postgresql+asyncpg://postgres:postgres@localhost:5432/hr_goals` |
 | `CHROMA_PERSIST_DIR` | Папка для хранения ChromaDB | `./chroma_data` |
 | `BGE_MODEL_NAME` | Модель эмбеддингов | `BAAI/bge-m3` |
-| `LLM_MODEL` | ID модели Claude | `claude-sonnet-4-20250514` |
+| `LLM_PROVIDER` | Провайдер LLM: `anthropic` (по умолчанию) или `azure_openai` | `anthropic` |
+| `LLM_MODEL` | ID модели (`claude-sonnet-4-20250514` или имя Azure deployment) | `claude-sonnet-4-20250514` |
 | `LLM_TEMPERATURE_EVAL` | Температура для оценки (детерминизм) | `0` |
 | `LLM_TEMPERATURE_GEN` | Температура для генерации | `0.3` |
 | `LOG_LEVEL` | Уровень логирования | `INFO` |
+| `AZURE_OPENAI_API_KEY` | (опционально) ключ Azure OpenAI | — |
+| `AZURE_OPENAI_ENDPOINT` | (опционально) endpoint Azure OpenAI `https://<name>.openai.azure.com/` | — |
+| `AZURE_OPENAI_API_VERSION` | Версия API Azure | `2025-01-01-preview` |
+| `AZURE_OPENAI_DEPLOYMENT` | Имя deployment в Azure (например, `gpt-4o-mini`) | — |
+
+> ⚙️ **Azure вместо Anthropic:** укажите `LLM_PROVIDER=azure_openai`, заполните `AZURE_OPENAI_*`, а в `LLM_MODEL` оставьте имя deployment'а. Anthropic остаётся настройкой по умолчанию, поэтому вернуть его можно, просто переключив `LLM_PROVIDER` и задав `ANTHROPIC_API_KEY`.
 
 ---
 
@@ -167,7 +209,7 @@ ai_for_hr/
 │       │   ├── generator.py     # Логика генерации целей
 │       │   ├── rag.py           # RAG-пайплайн
 │       │   ├── schemas.py       # Pydantic-модели ответов
-│       │   ├── llm_client.py    # Обёртка над Anthropic API + кэш
+│       │   ├── llm_client.py    # Обёртка над Anthropic/Azure OpenAI + кэш
 │       │   └── analytics_engine.py
 │       ├── models/              # SQLAlchemy ORM-модели
 │       └── services/            # ChromaDB, document indexer, goal service

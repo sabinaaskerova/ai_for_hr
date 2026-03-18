@@ -212,3 +212,5 @@ node_modules/
 frontend/dist/
 .DS_Store
 backend/data/demo_cache/*.json
+
+hackathon_db/
