@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
+    hackathon_data_dir: str = "../hackathon_db"
 
     # Embedding model (изменение вызывает переиндексацию ChromaDB)
     embedding_model: str = "intfloat/multilingual-e5-small"

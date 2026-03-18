@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,9 +47,23 @@ async def startup_event():
             result = await session.execute(select(func.count()).select_from(Employee))
             emp_count = result.scalar()
             if not emp_count:
-                log.info("Таблица employees пуста. Запускаем seed...")
-                from seed_database import seed_all
-                await seed_all(session)
+                log.info("Таблица employees пуста. Импортируем данные hackathon_db...")
+                try:
+                    from scripts import import_hackathon_data
+
+                    data_dir = Path(settings.hackathon_data_dir).resolve()
+                    await import_hackathon_data.import_data(data_dir=data_dir)
+                    log.info("Импорт реальных данных завершён")
+                except FileNotFoundError as e:
+                    log.error(f"Каталог с данными не найден ({e}). Запускаем seed.")
+                    from seed_database import seed_all
+
+                    await seed_all(session)
+                except Exception as import_error:
+                    log.error(f"Импорт реальных данных не удался: {import_error}. Запускаем seed.")
+                    from seed_database import seed_all
+
+                    await seed_all(session)
             else:
                 log.info(f"БД: {emp_count} сотрудников, seed не нужен")
     except Exception as e:

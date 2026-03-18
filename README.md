@@ -106,8 +106,9 @@ pip install -e .
 
 # Создать .env (в корне проекта)
 cp ../.env.example ../.env
-# Заполнить ANTHROPIC_API_KEY и указать локальный DATABASE_URL:
+# Заполнить ANTHROPIC_API_KEY и указать локальный DATABASE_URL и HACKATHON_DATA_DIR (путь к CSV каталогу):
 # DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/hr_goals
+# HACKATHON_DATA_DIR=../hackathon_db
 
 # Запустить PostgreSQL (отдельно, например через Docker)
 docker run -d --name pg16 \
@@ -120,6 +121,8 @@ docker run -d --name pg16 \
 # Запустить backend (автоматически создаст таблицы и заполнит данными)
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+> При первом запуске backend проверяет таблицу `employees`. Если она пуста, автоматически запускается импорт CSV из каталога `HACKATHON_DATA_DIR` (по умолчанию `../hackathon_db`, в Docker — `/app/hackathon_db`). Поэтому достаточно держать папку с данными рядом с проектом или смонтировать её в контейнер. Для принудительного обновления по-прежнему можно выполнить `python -m scripts.import_hackathon_data`.
 
 ### Frontend
 
@@ -135,8 +138,7 @@ npm run dev
 ## Импорт реальных данных hackathon_db
 
 1. Убедитесь, что локальная PostgreSQL поднята, а `DATABASE_URL` в `.env` указывает на нужную базу.
-2. Данные хранятся в каталоге `hackathon_db` рядом с проектом (`../hackathon_db` относительно `backend/scripts`). Если папка в другом месте, передайте путь через `--data-dir`.
-   - При запуске через Docker добавьте volume в `docker-compose.yml` для сервиса backend: `- ./hackathon_db:/app/hackathon_db`, иначе контейнер не увидит CSV.
+2. Данные хранятся в каталоге `hackathon_db` (значение можно переопределить переменной `HACKATHON_DATA_DIR`). По умолчанию путь `../hackathon_db` относительно `backend`. При запуске через Docker папка пробрасывается как volume `./hackathon_db:/app/hackathon_db`.
 3. Активируйте виртуальное окружение backend и выполните:
 
 ```bash
@@ -174,6 +176,7 @@ SELECT COUNT(*) FROM documents;
 | `ANTHROPIC_API_KEY` | Ключ Anthropic API (используется при `LLM_PROVIDER=anthropic`) | — |
 | `DATABASE_URL` | Строка подключения к PostgreSQL | `postgresql+asyncpg://postgres:postgres@localhost:5432/hr_goals` |
 | `CHROMA_PERSIST_DIR` | Папка для хранения ChromaDB | `./chroma_data` |
+| `HACKATHON_DATA_DIR` | Путь к каталогу с CSV `hackathon_db` | `../hackathon_db` |
 | `BGE_MODEL_NAME` | Модель эмбеддингов | `BAAI/bge-m3` |
 | `LLM_PROVIDER` | Провайдер LLM: `anthropic` (по умолчанию) или `azure_openai` | `anthropic` |
 | `LLM_MODEL` | ID модели (`claude-sonnet-4-20250514` или имя Azure deployment) | `claude-sonnet-4-20250514` |

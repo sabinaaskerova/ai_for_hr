@@ -38,7 +38,7 @@ from app.models.models import (
 
 log = logging.getLogger("import_hackathon_data")
 
-DATA_ROOT = Path(__file__).resolve().parents[2] / "hr_goals"
+DEFAULT_DATA_ROOT = Path(__file__).resolve().parents[2] / "hackathon_db"
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -563,8 +563,8 @@ class ImportResult:
     reviews: int = 0
 
 
-async def run(args) -> ImportResult:
-    data_dir = args.data_dir.resolve()
+async def run(data_dir: Path, skip_truncate: bool, limit_goals: int | None) -> ImportResult:
+    data_dir = data_dir.resolve()
     if not data_dir.exists():
         raise FileNotFoundError(f"Каталог с данными не найден: {data_dir}")
 
@@ -572,7 +572,7 @@ async def run(args) -> ImportResult:
 
     result = ImportResult()
     async with AsyncSessionLocal() as session:
-        if not args.skip_truncate:
+        if not skip_truncate:
             log.info("Очищаем таблицы...")
             await purge_tables(session)
 
@@ -592,7 +592,7 @@ async def run(args) -> ImportResult:
         result.kpis = await import_kpis(session, data_dir / "kpi_timeseries.csv", catalog)
 
         log.info("Импорт целей...")
-        goal_map = await import_goals(session, data_dir / "goals.csv", catalog, args.limit_goals)
+        goal_map = await import_goals(session, data_dir / "goals.csv", catalog, limit_goals)
         result.goals = len(goal_map)
 
         log.info("Импорт событий целей...")
@@ -606,9 +606,23 @@ async def run(args) -> ImportResult:
     return result
 
 
+async def import_data(
+    data_dir: Path | str | None = None,
+    skip_truncate: bool = False,
+    limit_goals: int | None = None,
+) -> ImportResult:
+    target_dir = Path(data_dir) if data_dir else DEFAULT_DATA_ROOT
+    return await run(target_dir, skip_truncate=skip_truncate, limit_goals=limit_goals)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Импорт данных hackathon_db в PostgreSQL")
-    parser.add_argument("--data-dir", type=Path, default=DATA_ROOT, help="Путь к каталогу с CSV (по умолчанию ../../hackathon_db)")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_ROOT,
+        help="Путь к каталогу с CSV (по умолчанию ../../hackathon_db)",
+    )
     parser.add_argument("--skip-truncate", action="store_true", help="Не делать TRUNCATE таблиц перед импортом")
     parser.add_argument("--limit-goals", type=int, help="Ограничить количество импортируемых целей (для отладки)")
     return parser
@@ -618,7 +632,13 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = build_parser()
     args = parser.parse_args()
-    result = asyncio.run(run(args))
+    result = asyncio.run(
+        import_data(
+            data_dir=args.data_dir,
+            skip_truncate=args.skip_truncate,
+            limit_goals=args.limit_goals,
+        )
+    )
     log.info(
         "Готово. Департаментов=%s, сотрудников=%s, документов=%s, KPI=%s, целей=%s, событий=%s, ревью=%s",
         result.departments,
