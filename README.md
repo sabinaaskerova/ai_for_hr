@@ -9,8 +9,8 @@ AI-модуль для автоматической оценки и генера
 
 | Слой | Технология |
 |------|-----------|
-| LLM | Claude Sonnet (`claude-sonnet-4-20250514`) через Anthropic API |
-| Эмбеддинги | `BAAI/bge-m3` (sentence-transformers) |
+| LLM | Anthropic Claude Sonnet 4 (по умолчанию) или Azure OpenAI (`gpt-4o`, `gpt-4o-mini`) |
+| Эмбеддинги | `BAAI/bge-m3` (локально) или Azure `text-embedding-3-large` |
 | Векторная БД | ChromaDB (embedded, persistent) |
 | Backend | FastAPI + SQLAlchemy 2.0 async + asyncpg |
 | Frontend | React 18 + Vite + Tailwind CSS + Recharts |
@@ -21,13 +21,13 @@ AI-модуль для автоматической оценки и генера
 
 ## Требования
 
-- [Docker](https://docs.docker.com/get-docker/) и Docker Compose (v2+)
-- Ключ Anthropic API (`sk-ant-...`)
+- [Docker](https://docs.docker.com/get-docker/) и Docker Compose v2+
+- Один из ключей:
+  - Anthropic (`ANTHROPIC_API_KEY=sk-ant-...`) **или**
+  - Azure OpenAI (`AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`)
+- (опционально) токен HuggingFace (`HF_TOKEN`) для скачивания `BAAI/bge-m3`
 
-Для **локального запуска без Docker** дополнительно:
-- Python 3.11+
-- Node.js 20+
-- PostgreSQL 16
+Для **локального запуска без Docker** дополнительно нужны Python 3.11+, Node.js 20+, PostgreSQL 16.
 
 ---
 
@@ -46,47 +46,40 @@ cd ai_for_hr
 cp .env.example .env
 ```
 
-Открыть `.env` и вставить ключ Anthropic:
+Заполнить `.env` по сценарию:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-ваш-ключ-здесь
+# Вариант Anthropic (по умолчанию)
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Вариант Azure OpenAI (используется на демо)
+LLM_PROVIDER=azure_openai
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://<name>.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_EMBEDDING_DEPLOYMENT=text-embedding-3-large
 ```
 
-Остальные переменные для Docker менять не нужно.
+> **Нет облачных ключей?** Можно оставить `LLM_PROVIDER=anthropic` и не вызывать эндпоинты генерации/оценки (UI будет работать в режиме справочника + RAG). Для полноценного сценария требуется один из ключей.
+
+`HACKATHON_DATA_DIR` указывает на папку с CSV (по умолчанию `./hackathon_db`, она уже в репозитории). Backend при первом запуске автоматически импортирует данные из этой папки.
 
 ### 3. Запустить
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-> ⏳ **Первый запуск занимает 15–25 минут** и требует около **7 ГБ свободного места на диске.**
->
-> Причины:
-> - Модель эмбеддингов `BAAI/bge-m3` (~2.3 ГБ) — лучшая мультиязычная модель для русского языка, загружается при сборке Docker-образа
-> - Сборка Python/Node зависимостей (~1.5 ГБ)
-> - Docker-образы PostgreSQL, Python, Node (~2 ГБ)
-> - Начальное заполнение БД и индексирование 160 документов в ChromaDB (~3–5 мин при первом старте)
->
-> **После первой установки всё кэшируется.** Повторный `docker compose up` занимает менее 30 секунд и никак не влияет на качество работы и скорость отклика приложения.
-
-#### Быстрый старт с лёгкой моделью (~5 ГБ, ~10 мин)
-
-Если места или времени мало — можно использовать более лёгкую модель эмбеддингов:
-
-```bash
-EMBEDDING_MODEL=intfloat/multilingual-e5-small docker compose up --build
-```
-
-Модель `multilingual-e5-small` весит ~470 МБ вместо 2.3 ГБ. Качество поиска по документам немного ниже, но для демонстрации достаточно. Лёгкая и полная модели используют **отдельные коллекции** в ChromaDB — переключение между ними безопасно.
+> ⏳ **Первый запуск** тянет зависимости, скачивает модель эмбеддингов и загружает 160 документов в ChromaDB. С качёнными образами повторные старты занимают <30 секунд.
 
 ### 4. Открыть в браузере
 
 | Сервис | URL |
 |--------|-----|
-| Фронтенд | http://localhost:5173 |
-| API (Swagger) | http://localhost:8000/docs |
-| Healthcheck | http://localhost:8000/health |
+| Фронтенд | http://localhost:5174 |
+| API (Swagger) | http://localhost:8010/docs |
+| Backend health | http://localhost:8010/health |
 
 ---
 
@@ -106,7 +99,7 @@ pip install -e .
 
 # Создать .env (в корне проекта)
 cp ../.env.example ../.env
-# Заполнить ANTHROPIC_API_KEY и указать локальный DATABASE_URL и HACKATHON_DATA_DIR (путь к CSV каталогу):
+# Заполнить ключи, указать локальный DATABASE_URL и HACKATHON_DATA_DIR:
 # DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/hr_goals
 # HACKATHON_DATA_DIR=../hackathon_db
 
@@ -122,7 +115,7 @@ docker run -d --name pg16 \
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-> При первом запуске backend проверяет таблицу `employees`. Если она пуста, автоматически запускается импорт CSV из каталога `HACKATHON_DATA_DIR` (по умолчанию `../hackathon_db`, в Docker — `/app/hackathon_db`). Поэтому достаточно держать папку с данными рядом с проектом или смонтировать её в контейнер. Для принудительного обновления по-прежнему можно выполнить `python -m scripts.import_hackathon_data`.
+> При старте backend проверяет таблицу `employees`. Если она пуста, автоматически запускается `scripts.import_hackathon_data.import_data` с путём `HACKATHON_DATA_DIR`. Это гарантирует, что при любом клонировании репозитория достаточно положить папку `hackathon_db` рядом с проектом или пробросить её в контейнер.
 
 ### Frontend
 
@@ -137,8 +130,8 @@ npm run dev
 
 ## Импорт реальных данных hackathon_db
 
-1. Убедитесь, что локальная PostgreSQL поднята, а `DATABASE_URL` в `.env` указывает на нужную базу.
-2. Данные хранятся в каталоге `hackathon_db` (значение можно переопределить переменной `HACKATHON_DATA_DIR`). По умолчанию путь `../hackathon_db` относительно `backend`. При запуске через Docker папка пробрасывается как volume `./hackathon_db:/app/hackathon_db`.
+1. Убедитесь, что локальная PostgreSQL поднята (или контейнер `ai_for_hr-postgres-1` работает), а `DATABASE_URL` указывает на нужную базу.
+2. Проверьте, что `hackathon_db/` находится рядом с проектом (или передайте кастомный путь через `HACKATHON_DATA_DIR` / `--data-dir`).
 3. Активируйте виртуальное окружение backend и выполните:
 
 ```bash
@@ -157,7 +150,7 @@ python -m scripts.import_hackathon_data --data-dir ../../hackathon_db
 python -m scripts.index_documents --force
 ```
 
-5. При необходимости проверьте объёмы в БД:
+5. Проверьте, что данные загрузились:
 
 ```sql
 SELECT COUNT(*) FROM goals;
@@ -165,7 +158,8 @@ SELECT COUNT(*) FROM goal_events;
 SELECT COUNT(*) FROM documents;
 ```
 
-Теперь backend и RAG будут работать на реальных данных хакатона.
+Теперь backend и RAG используют реальные данные хакатона. При следующем `docker compose up` проверка `employees` покажет >0 и импорт повторно запускаться не будет.
+Если нужно обновить датасет, повторите шаги 3–4.
 
 ---
 
@@ -177,7 +171,7 @@ SELECT COUNT(*) FROM documents;
 | `DATABASE_URL` | Строка подключения к PostgreSQL | `postgresql+asyncpg://postgres:postgres@localhost:5432/hr_goals` |
 | `CHROMA_PERSIST_DIR` | Папка для хранения ChromaDB | `./chroma_data` |
 | `HACKATHON_DATA_DIR` | Путь к каталогу с CSV `hackathon_db` | `../hackathon_db` |
-| `BGE_MODEL_NAME` | Модель эмбеддингов | `BAAI/bge-m3` |
+| `EMBEDDING_MODEL` | Идентификатор эмбеддингов (используется для названия коллекции) | `BAAI/bge-m3` |
 | `LLM_PROVIDER` | Провайдер LLM: `anthropic` (по умолчанию) или `azure_openai` | `anthropic` |
 | `LLM_MODEL` | ID модели (`claude-sonnet-4-20250514` или имя Azure deployment) | `claude-sonnet-4-20250514` |
 | `LLM_TEMPERATURE_EVAL` | Температура для оценки (детерминизм) | `0` |
@@ -185,10 +179,13 @@ SELECT COUNT(*) FROM documents;
 | `LOG_LEVEL` | Уровень логирования | `INFO` |
 | `AZURE_OPENAI_API_KEY` | (опционально) ключ Azure OpenAI | — |
 | `AZURE_OPENAI_ENDPOINT` | (опционально) endpoint Azure OpenAI `https://<name>.openai.azure.com/` | — |
-| `AZURE_OPENAI_API_VERSION` | Версия API Azure | `2025-01-01-preview` |
+| `AZURE_OPENAI_API_VERSION` | Версия API Azure | `2024-02-01` |
 | `AZURE_OPENAI_DEPLOYMENT` | Имя deployment в Azure (например, `gpt-4o-mini`) | — |
 
-> ⚙️ **Azure вместо Anthropic:** укажите `LLM_PROVIDER=azure_openai`, заполните `AZURE_OPENAI_*`, а в `LLM_MODEL` оставьте имя deployment'а. Anthropic остаётся настройкой по умолчанию, поэтому вернуть его можно, просто переключив `LLM_PROVIDER` и задав `ANTHROPIC_API_KEY`.
+> ⚙️ **Выбор моделей:**  
+> - Для локального режима без облачных ключей оставьте `LLM_PROVIDER=anthropic`, не вызывайте генерацию/оценку и используйте RAG/аналитику.  
+> - Для демонстрации на Azure задайте `LLM_PROVIDER=azure_openai`, `AZURE_OPENAI_*` и `AZURE_EMBEDDING_DEPLOYMENT=text-embedding-3-large`.  
+> - Для более лёгкого embeddings можно экспортировать `EMBEDDING_MODEL=intfloat/multilingual-e5-small` перед сборкой (`EMBEDDING_MODEL=intfloat/multilingual-e5-small docker compose up --build`). Каждой модели соответствует собственная коллекция Chroma (`documents_<model>`).
 
 ---
 
