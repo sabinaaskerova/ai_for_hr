@@ -46,26 +46,30 @@ async def startup_event():
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(func.count()).select_from(Employee))
             emp_count = result.scalar()
-            if not emp_count:
-                log.info("Таблица employees пуста. Импортируем данные hackathon_db...")
-                try:
-                    from scripts import import_hackathon_data
+        # сессия закрыта — нет блокировок при TRUNCATE
 
-                    data_dir = Path(settings.hackathon_data_dir).resolve()
-                    await import_hackathon_data.import_data(data_dir=data_dir)
-                    log.info("Импорт реальных данных завершён")
-                except FileNotFoundError as e:
-                    log.error(f"Каталог с данными не найден ({e}). Запускаем seed.")
-                    from seed_database import seed_all
+        if not emp_count:
+            log.info("Таблица employees пуста. Импортируем данные hackathon_db...")
+            try:
+                from scripts import import_hackathon_data
 
+                data_dir = Path(settings.hackathon_data_dir).resolve()
+                await import_hackathon_data.import_data(data_dir=data_dir)
+                log.info("Импорт реальных данных завершён")
+            except FileNotFoundError as e:
+                log.error(f"Каталог с данными не найден ({e}). Запускаем seed.")
+                from seed_database import seed_all
+
+                async with AsyncSessionLocal() as session:
                     await seed_all(session)
-                except Exception as import_error:
-                    log.error(f"Импорт реальных данных не удался: {import_error}. Запускаем seed.")
-                    from seed_database import seed_all
+            except Exception as import_error:
+                log.error(f"Импорт реальных данных не удался: {import_error}. Запускаем seed.")
+                from seed_database import seed_all
 
+                async with AsyncSessionLocal() as session:
                     await seed_all(session)
-            else:
-                log.info(f"БД: {emp_count} сотрудников, seed не нужен")
+        else:
+            log.info(f"БД: {emp_count} сотрудников, seed не нужен")
     except Exception as e:
         log.error(f"Ошибка при seed: {e}")
 
