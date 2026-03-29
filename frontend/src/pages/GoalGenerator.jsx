@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Sparkles, Loader2, Search, User, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import clsx from 'clsx'
 import GoalCard from '../components/GoalCard'
-import { getEmployees, getDepartments } from '../api/client'
+import { getEmployees, getDepartments, saveGoal } from '../api/client'
 import { saveToHistory } from '../utils/history'
 
 const QUARTERS = ['2025-Q1', '2025-Q2', '2025-Q3', '2025-Q4', '2026-Q1', '2026-Q2']
@@ -25,6 +25,7 @@ export default function GoalGenerator() {
   const [error, setError] = useState(null)
   const [acceptedIds, setAcceptedIds] = useState(new Set())
   const [rejectedIds, setRejectedIds] = useState(new Set())
+  const [savedGoalIds, setSavedGoalIds] = useState({}) // index -> DB goal id
 
   useEffect(() => {
     getDepartments().then(setDepts).catch(() => {})
@@ -59,6 +60,7 @@ export default function GoalGenerator() {
     setTotalWeight(0)
     setAcceptedIds(new Set())
     setRejectedIds(new Set())
+    setSavedGoalIds({})
 
     const collectedGoals = []
     let finalWarnings = []
@@ -308,12 +310,39 @@ export default function GoalGenerator() {
                 <GoalCard
                   goal={goal}
                   showActions
-                  onAccept={() => setAcceptedIds((s) => new Set([...s, i]))}
+                  onAccept={async () => {
+                    setAcceptedIds((s) => new Set([...s, i]))
+                    try {
+                      const saved = await saveGoal({
+                        employee_id: selectedEmp.id,
+                        quarter,
+                        goal_text: goal.goal_text,
+                        metric: goal.metric || null,
+                        deadline: goal.deadline || null,
+                        weight: goal.weight || null,
+                        goal_type: goal.goal_type || null,
+                        strategic_link: goal.strategic_link || null,
+                        smart_s: goal.smart_scores?.specific ?? null,
+                        smart_m: goal.smart_scores?.measurable ?? null,
+                        smart_a: goal.smart_scores?.achievable ?? null,
+                        smart_r: goal.smart_scores?.relevant ?? null,
+                        smart_t: goal.smart_scores?.time_bound ?? null,
+                        smart_index: goal.smart_index ?? null,
+                        source_document: goal.source_document || null,
+                        source_quote: goal.source_quote || null,
+                        is_generated: true,
+                      })
+                      setSavedGoalIds((s) => ({ ...s, [i]: saved.id }))
+                    } catch (e) {
+                      console.error('Ошибка сохранения цели:', e)
+                    }
+                  }}
                   onReject={() => setRejectedIds((s) => new Set([...s, i]))}
                 />
                 {acceptedIds.has(i) && (
                   <div className="flex items-center gap-1.5 mt-1.5 text-emerald-600 text-xs font-medium px-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Принята
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {savedGoalIds[i] ? `Сохранена в БД (ID: ${savedGoalIds[i]})` : 'Сохраняем...'}
                   </div>
                 )}
               </div>

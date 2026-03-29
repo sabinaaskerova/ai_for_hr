@@ -62,6 +62,7 @@ class EvaluateResponse(BaseModel):
     recommendations: list[str]          # собранные рекомендации по всем критериям
     improved_goal: Optional[str] = None # переформулировка если слабая цель
     achievability_warning: Optional[str] = None  # F-20: предупреждение на основе истории
+    duplicate_warning: Optional[str] = None       # F-21: предупреждение о дублировании целей
     # Расширенные поля для фронтенда
     smart_detail: SmartEvaluationResult
     strategic_link: StrategicLinkResult
