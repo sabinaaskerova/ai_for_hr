@@ -206,3 +206,57 @@ async def index_all_documents(limit: Optional[int] = None, offset: Optional[int]
         gc.collect()
 
     log.info(f"Индексация завершена. Всего чанков: {vs.count()}")
+
+
+async def index_one_document(doc_id: int) -> None:
+    """Инкрементальное обновление: пересчитывает эмбеддинги только для одного документа."""
+    from app.database import AsyncSessionLocal
+    from app.models import Document, Department
+    from sqlalchemy import select
+    from app.services.vector_store import get_vector_store
+
+    vs = await get_vector_store()
+    vs.delete_chunks_by_doc_id(doc_id)
+
+    embedder = get_embedder()
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(Document, Department)
+            .outerjoin(Department, Document.department_id == Department.id)
+            .where(Document.id == doc_id)
+        )
+        row = res.one_or_none()
+
+    if not row:
+        log.info(f"index_one_document: документ id={doc_id} не найден, чанки удалены")
+        return
+
+    doc, dept = row
+    if not doc.is_active:
+        log.info(f"index_one_document: документ id={doc_id} неактивен, пропускаем")
+        return
+
+    chunks = chunk_document(
+        content=doc.content,
+        title=doc.title,
+        doc_id=doc.id,
+        doc_type=doc.doc_type,
+        department_id=doc.department_id,
+        department_name=dept.name if dept else None,
+    )
+
+    if not chunks:
+        log.info(f"index_one_document: нет чанков для doc_id={doc_id}")
+        return
+
+    BATCH = 20
+    for i in range(0, len(chunks), BATCH):
+        batch = chunks[i:i + BATCH]
+        texts = [c["text"] for c in batch]
+        embeddings = embedder.encode(texts, normalize_embeddings=True, batch_size=BATCH, show_progress_bar=False)
+        for chunk, emb in zip(batch, embeddings):
+            chunk["embedding"] = emb.tolist()
+        vs.add_chunks(batch)
+
+    log.info(f"index_one_document: doc_id={doc_id} проиндексирован ({len(chunks)} чанков)")

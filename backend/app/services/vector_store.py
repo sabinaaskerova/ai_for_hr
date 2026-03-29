@@ -74,6 +74,14 @@ class VectorStore:
     def count(self) -> int:
         return self.collection.count()
 
+    def delete_chunks_by_doc_id(self, doc_id: int) -> None:
+        """Удаляет все чанки документа из ChromaDB по doc_id."""
+        results = self.collection.get(where={"doc_id": {"$eq": doc_id}}, include=[])
+        ids = results.get("ids", [])
+        if ids:
+            self.collection.delete(ids=ids)
+            log.info(f"Удалено {len(ids)} чанков для doc_id={doc_id}")
+
     def clear_collection(self) -> None:
         """Удаляет и пересоздаёт коллекцию (для ручной переиндексации через --force)."""
         self.client.delete_collection(self.collection_name)
