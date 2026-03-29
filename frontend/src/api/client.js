@@ -40,6 +40,11 @@ export const getTrends = (departmentId) =>
 export const getDepartmentAnalytics = (deptId, quarter) =>
   request(`/analytics/department/${deptId}${quarter ? `?quarter=${quarter}` : ''}`)
 
+// ─── Goals ────────────────────────────────────────────────────────────────────
+
+export const saveGoal = (data) =>
+  request('/goals', { method: 'POST', body: JSON.stringify(data) })
+
 // ─── Documents ────────────────────────────────────────────────────────────────
 
 export const searchDocuments = (data) =>

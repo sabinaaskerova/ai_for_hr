@@ -7,6 +7,10 @@ from .models import (
     GoalEvent,
     GoalReview,
     KpiTimeseries,
+    GoalStatus,
+    EventType,
+    GoalType,
+    StrategicLink,
 )
 
 __all__ = [
@@ -18,4 +22,8 @@ __all__ = [
     "GoalEvent",
     "GoalReview",
     "KpiTimeseries",
+    "GoalStatus",
+    "EventType",
+    "GoalType",
+    "StrategicLink",
 ]
