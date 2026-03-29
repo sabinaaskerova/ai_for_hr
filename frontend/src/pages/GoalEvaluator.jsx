@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
-import { Target, Loader2, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Target, Loader2, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Search, User, Copy } from 'lucide-react'
 import clsx from 'clsx'
 import SmartRadarChart from '../components/SmartRadarChart'
 import BeforeAfter from '../components/BeforeAfter'
-import { evaluateGoal, reformulateGoal, getDepartments } from '../api/client'
+import { evaluateGoal, reformulateGoal, getEmployees } from '../api/client'
 import { saveToHistory } from '../utils/history'
 
 const GOAL_TYPE_CONFIG = {
@@ -20,7 +20,8 @@ const LINK_CONFIG = {
 
 const CRITERION_NAMES = { S: 'Specific', M: 'Measurable', A: 'Achievable', R: 'Relevant', T: 'Time-bound' }
 
-// Пороги для шкалы 0.0-1.0 (0.75 = 4/5, 0.5 = 3/5 нормализованное)
+const QUARTERS = ['2025-Q1', '2025-Q2', '2025-Q3', '2025-Q4', '2026-Q1', '2026-Q2']
+
 function scoreColor(s) {
   if (s >= 0.75) return 'text-emerald-600'
   if (s >= 0.5) return 'text-amber-500'
@@ -68,31 +69,57 @@ function CriterionCard({ letter, data }) {
 }
 
 export default function GoalEvaluator() {
-  const [departments, setDepartments] = useState([])
-  const [form, setForm] = useState({ goal_text: '', position: '', department: '' })
+  const [search, setSearch] = useState('')
+  const [employees, setEmployees] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [selectedEmp, setSelectedEmp] = useState(null)
+  const [quarter, setQuarter] = useState('2026-Q1')
+  const [goalText, setGoalText] = useState('')
   const [loading, setLoading] = useState(false)
   const [reformLoading, setReformLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [reformResult, setReformResult] = useState(null)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    getDepartments().then(setDepartments).catch(() => {})
+  const searchEmployees = useCallback(async (q) => {
+    if (!q.trim()) { setEmployees([]); return }
+    setSearchLoading(true)
+    try {
+      const res = await getEmployees(q)
+      setEmployees(res.employees || [])
+    } catch {
+      setEmployees([])
+    } finally {
+      setSearchLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    const t = setTimeout(() => searchEmployees(search), 350)
+    return () => clearTimeout(t)
+  }, [search, searchEmployees])
+
   const handleEvaluate = async () => {
-    if (!form.goal_text.trim() || !form.position.trim() || !form.department.trim()) {
-      setError('Заполните все поля')
-      return
-    }
+    if (!selectedEmp) { setError('Выберите сотрудника'); return }
+    if (!goalText.trim()) { setError('Введите текст цели'); return }
     setLoading(true)
     setError(null)
     setResult(null)
     setReformResult(null)
     try {
-      const res = await evaluateGoal(form)
+      const res = await evaluateGoal({
+        goal_text: goalText,
+        position: selectedEmp.position,
+        department: selectedEmp.department_name,
+        employee_id: selectedEmp.id,
+        quarter,
+      })
       setResult(res)
-      saveToHistory({ type: 'evaluation', input: form, result: res })
+      saveToHistory({
+        type: 'evaluation',
+        input: { goal_text: goalText, position: selectedEmp.position, department: selectedEmp.department_name, employee_id: selectedEmp.id },
+        result: res,
+      })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -104,7 +131,11 @@ export default function GoalEvaluator() {
     setReformLoading(true)
     setError(null)
     try {
-      const res = await reformulateGoal({ goal_text: form.goal_text, position: form.position, department: form.department })
+      const res = await reformulateGoal({
+        goal_text: goalText,
+        position: selectedEmp?.position || '',
+        department: selectedEmp?.department_name || '',
+      })
       setReformResult(res)
     } catch (e) {
       setError(e.message)
@@ -113,7 +144,6 @@ export default function GoalEvaluator() {
     }
   }
 
-  // API теперь возвращает smart_detail (SmartEvaluationResult с S/M/A/R/T)
   const smartDetail = result?.smart_detail
   const link = result?.strategic_link
   const typeConf = GOAL_TYPE_CONFIG[smartDetail?.goal_type] ?? GOAL_TYPE_CONFIG['output-based']
@@ -128,59 +158,88 @@ export default function GoalEvaluator() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Оценка цели</h1>
-          <p className="text-gray-500 text-sm">AI-оценка по методологии SMART + стратегическая связка</p>
+          <p className="text-gray-500 text-sm">AI-оценка по методологии SMART + стратегическая связка + проверка дублирования</p>
         </div>
       </div>
 
       {/* Form */}
-      <div className="card mb-6">
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность</label>
+      <div className="card mb-6 space-y-4">
+
+        {/* Employee search */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Сотрудник</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="напр. HR бизнес-партнёр"
-              value={form.position}
-              onChange={(e) => setForm({ ...form, position: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+              placeholder="Поиск по имени..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setSelectedEmp(null) }}
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-500"
             />
+            {searchLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Подразделение</label>
-            <select
-              value={form.department}
-              onChange={(e) => setForm({ ...form, department: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 bg-white"
-            >
-              <option value="">— Выбрать —</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.name}>{d.name}</option>
+
+          {employees.length > 0 && !selectedEmp && (
+            <div className="border border-gray-200 rounded-lg mt-1 bg-white shadow-md max-h-48 overflow-y-auto">
+              {employees.map((emp) => (
+                <button
+                  key={emp.id}
+                  onClick={() => { setSelectedEmp(emp); setSearch(emp.full_name); setEmployees([]) }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 border-b border-gray-50 last:border-0"
+                >
+                  <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">{emp.full_name}</div>
+                    <div className="text-xs text-gray-500">{emp.position} · {emp.department_name}</div>
+                  </div>
+                </button>
               ))}
-              {departments.length === 0 && (
-                <>
-                  <option>HR и управление персоналом</option>
-                  <option>Добыча</option>
-                  <option>Финансы и экономика</option>
-                  <option>Цифровая трансформация</option>
-                </>
-              )}
-            </select>
-          </div>
+            </div>
+          )}
+
+          {selectedEmp && (
+            <div className="mt-2 bg-navy-50 rounded-lg px-4 py-3 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-navy-700 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {selectedEmp.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold text-navy-800 text-sm">{selectedEmp.full_name}</div>
+                <div className="text-xs text-navy-600">{selectedEmp.position} · {selectedEmp.department_name} · {selectedEmp.grade}</div>
+                {selectedEmp.manager_name && (
+                  <div className="text-xs text-navy-500 mt-0.5">Руководитель: {selectedEmp.manager_name}</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="mb-4">
+        {/* Quarter */}
+        <div className="w-48">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Квартал</label>
+          <select
+            value={quarter}
+            onChange={(e) => setQuarter(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-500"
+          >
+            {QUARTERS.map((q) => <option key={q}>{q}</option>)}
+          </select>
+        </div>
+
+        {/* Goal text */}
+        <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Цель для оценки</label>
           <textarea
             rows={4}
             placeholder="Введите формулировку цели..."
-            value={form.goal_text}
-            onChange={(e) => setForm({ ...form, goal_text: e.target.value })}
+            value={goalText}
+            onChange={(e) => setGoalText(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 resize-none"
           />
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm mb-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm">
             {error}
           </div>
         )}
@@ -204,19 +263,16 @@ export default function GoalEvaluator() {
         <div className="grid grid-cols-5 gap-6">
           {/* Left: radar + meta */}
           <div className="col-span-2 space-y-4">
-            {/* Big SMART index (из ТЗ: smart_index на уровне ответа) */}
             <div className="card text-center">
               <div className={clsx('text-5xl font-bold mb-1', scoreColor(result.smart_index))}>
                 {result.smart_index?.toFixed(2)}
               </div>
               <div className="text-gray-500 text-sm">SMART-индекс (0–1)</div>
               <div className="mt-3">
-                {/* Передаём smart_scores (плоский формат) для radar */}
                 <SmartRadarChart smart={result.smart_scores} size={220} />
               </div>
             </div>
 
-            {/* Badges */}
             <div className="card space-y-3">
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Тип цели</div>
@@ -238,20 +294,32 @@ export default function GoalEvaluator() {
               </div>
             </div>
 
+            {/* F-21: предупреждение о дублировании */}
+            {result.duplicate_warning && (
+              <div className="card border border-amber-200 bg-amber-50">
+                <div className="flex items-start gap-2">
+                  <Copy className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-amber-700 mb-1">Дублирование целей (F-21)</div>
+                    <p className="text-xs text-amber-600">{result.duplicate_warning}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* F-20: предупреждение о достижимости */}
             {result.achievability_warning && (
               <div className="card border border-orange-200 bg-orange-50">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <div className="text-xs font-semibold text-orange-700 mb-1">Достижимость (исторические данные)</div>
+                    <div className="text-xs font-semibold text-orange-700 mb-1">Достижимость (F-20)</div>
                     <p className="text-xs text-orange-600">{result.achievability_warning}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Рекомендации (из ТЗ: recommendations[]) */}
             {result.recommendations?.length > 0 && (
               <div className="card">
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Рекомендации</div>
@@ -269,7 +337,7 @@ export default function GoalEvaluator() {
 
           {/* Right: criteria cards */}
           <div className="col-span-3 space-y-3">
-            <h2 className="font-semibold text-gray-800">Детализация по критериям</h2>
+            <h2 className="font-semibold text-gray-800">Детализация по критериям SMART</h2>
             {['S', 'M', 'A', 'R', 'T'].map((k) => (
               <CriterionCard key={k} letter={k} data={smartDetail[k]} />
             ))}
@@ -281,7 +349,6 @@ export default function GoalEvaluator() {
               </div>
             )}
 
-            {/* improved_goal из ТЗ */}
             {result.improved_goal && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                 <div className="text-xs font-semibold text-emerald-700 uppercase mb-1">Улучшенная формулировка</div>

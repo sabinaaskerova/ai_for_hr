@@ -28,17 +28,20 @@ async def evaluate_goal(
         from app.models import KpiTimeseries, Employee
         from sqlalchemy import select
 
-        # RAG retrieval
+        # Загружаем данные сотрудника если передан employee_id
         dept_id = None
+        position = request.position
+        department = request.department
         if request.employee_id:
             emp_res = await db.execute(select(Employee).where(Employee.id == request.employee_id))
             emp = emp_res.scalar_one_or_none()
             if emp:
                 dept_id = emp.department_id
+                position = emp.position  # берём из БД, не из запроса
 
         rag_chunks = await retrieve_for_evaluation(request.goal_text, dept_id)
 
-        # KPI данные
+        # KPI данные подразделения
         kpi_data = []
         if dept_id:
             kpi_res = await db.execute(
@@ -53,23 +56,37 @@ async def evaluate_goal(
                 for k in kpi_res.scalars().all()
             ]
 
-        # Вызов 1: SMART + тип цели
-        smart_result = await evaluate_smart(request, rag_context="")
+        # Загружаем цели руководителя для стратегической связки
+        manager_goals = []
+        if request.employee_id and request.quarter:
+            mgr_res = await db.execute(select(Employee.manager_id).where(Employee.id == request.employee_id))
+            manager_id = mgr_res.scalar_one_or_none()
+            if manager_id:
+                from app.models import Goal as GoalModel
+                mgr_goals_res = await db.execute(
+                    select(GoalModel.goal_text)
+                    .where(GoalModel.employee_id == manager_id, GoalModel.quarter == request.quarter)
+                    .limit(5)
+                )
+                manager_goals = [r[0] for r in mgr_goals_res.all()]
 
-        # Вызов 2: Стратегическая связка (отдельный LLM-вызов!)
+        # Вызов 1: SMART + тип цели
+        eval_req_with_context = request.model_copy(update={"position": position, "department": department})
+        smart_result = await evaluate_smart(eval_req_with_context, rag_context="")
+
+        # Вызов 2: Стратегическая связка (отдельный LLM-вызов)
         strategic_result = await evaluate_strategic_link(
             goal_text=request.goal_text,
-            position=request.position,
-            department=request.department,
+            position=position,
+            department=department,
             rag_chunks=rag_chunks,
             kpi_data=kpi_data,
-            manager_goals=[],
+            manager_goals=manager_goals,
         )
 
         smart_scores = build_smart_scores(smart_result)
         recommendations = collect_recommendations(smart_result)
 
-        # Автоматическая переформулировка если цель слабая (индекс < 0.625 = 3.5/5 нормализованное)
         improved_goal = None
         if smart_result.reformulation_suggested and smart_result.reformulation_hint:
             improved_goal = smart_result.reformulation_hint
@@ -79,7 +96,7 @@ async def evaluate_goal(
         if dept_id:
             try:
                 from app.services.goal_service import get_similar_goals
-                similar = await get_similar_goals(db, request.goal_text, dept_id, request.position)
+                similar = await get_similar_goals(db, request.goal_text, dept_id, position)
                 if similar:
                     rejected = [g for g in similar if g.get("verdict") == "rejected"]
                     rejection_rate = len(rejected) / len(similar)
@@ -92,6 +109,31 @@ async def evaluate_goal(
             except Exception as e:
                 log.warning(f"Ошибка F-20 проверки достижимости: {e}")
 
+        # F-21: проверка дублирования с существующими целями сотрудника
+        duplicate_warning = None
+        if request.employee_id:
+            try:
+                from app.models import Goal as GoalModel
+                from app.core.generator import _simple_similarity
+                quarter_filter = request.quarter if request.quarter else None
+                q = select(GoalModel.goal_text).where(GoalModel.employee_id == request.employee_id)
+                if quarter_filter:
+                    q = q.where(GoalModel.quarter == quarter_filter)
+                existing_res = await db.execute(q.limit(20))
+                existing_texts = [r[0] for r in existing_res.all()]
+                if existing_texts:
+                    sim = _simple_similarity(request.goal_text, existing_texts)
+                    if sim > 0.40:
+                        # Найдём наиболее похожую
+                        best = max(existing_texts, key=lambda t: _simple_similarity(request.goal_text, [t]))
+                        duplicate_warning = (
+                            f"⚠ Возможное дублирование: цель схожа с уже существующей целью сотрудника "
+                            f"({int(sim * 100)}% совпадение). "
+                            f"Похожая цель: «{best[:100]}…»"
+                        )
+            except Exception as e:
+                log.warning(f"Ошибка F-21 проверки дублирования: {e}")
+
         return EvaluateResponse(
             goal_id=request.goal_id,
             goal_text=request.goal_text,
@@ -100,6 +142,7 @@ async def evaluate_goal(
             recommendations=recommendations,
             improved_goal=improved_goal,
             achievability_warning=achievability_warning,
+            duplicate_warning=duplicate_warning,
             smart_detail=smart_result,
             strategic_link=strategic_result,
         )
@@ -221,7 +264,6 @@ async def evaluate_batch(
 @router.post("/reformulate", response_model=ReformulateResponse)
 async def reformulate_goal_endpoint(
     request: ReformulateRequest,
-    db: AsyncSession = Depends(get_db),
 ):
     """Переформулировка слабой цели с before/after SMART-оценками."""
     try:
