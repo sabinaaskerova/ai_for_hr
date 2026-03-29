@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db, AsyncSessionLocal
 from app.core.schemas import GenerateRequest, GenerateResponse
@@ -54,11 +54,22 @@ async def _load_context(request: GenerateRequest):
             for k in kpi_res.scalars().all()
         ]
 
+        hist_res = await db.execute(
+            select(func.avg(Goal.smart_a), func.count(Goal.id))
+            .join(Employee, Goal.employee_id == Employee.id)
+            .where(
+                Employee.department_id == emp.department_id,
+                Goal.quarter != request.quarter,
+                Goal.smart_a.isnot(None),
+            )
+        )
+        hist_avg_smart_a, hist_count = hist_res.one()
+
     rag_chunks = await retrieve_for_generation(
         position=emp.position, department=dept_name, quarter=request.quarter,
         focus_priorities=request.focus_priorities, department_id=emp.department_id,
     )
-    return emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks
+    return emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks, hist_avg_smart_a, hist_count
 
 
 @router.post("/generate/stream")
@@ -68,7 +79,7 @@ async def generate_goals_stream_endpoint(request: GenerateRequest):
 
     async def event_stream():
         try:
-            emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks = \
+            emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks, hist_avg_smart_a, hist_count = \
                 await _load_context(request)
             async for event in generate_goals_stream(
                 employee_id=request.employee_id, full_name=emp.full_name,
@@ -77,6 +88,7 @@ async def generate_goals_stream_endpoint(request: GenerateRequest):
                 focus_priorities=request.focus_priorities, n_goals=request.n_goals,
                 manager_name=manager_name, manager_goals=manager_goals,
                 existing_goals=existing_goals, rag_chunks=rag_chunks, kpi_data=kpi_data,
+                hist_avg_smart_a=hist_avg_smart_a, hist_count=hist_count,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -95,7 +107,7 @@ async def generate_goals(request: GenerateRequest):
     """Генерация 3-5 SMART-целей (обычный JSON, без стриминга)."""
     try:
         from app.core.generator import generate_goals as gen_goals
-        emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks = \
+        emp, dept_name, manager_name, manager_goals, existing_goals, kpi_data, rag_chunks, hist_avg_smart_a, hist_count = \
             await _load_context(request)
         goals, warnings = await gen_goals(
             employee_id=request.employee_id, full_name=emp.full_name,
@@ -104,6 +116,7 @@ async def generate_goals(request: GenerateRequest):
             focus_priorities=request.focus_priorities, n_goals=request.n_goals,
             manager_name=manager_name, manager_goals=manager_goals,
             existing_goals=existing_goals, rag_chunks=rag_chunks, kpi_data=kpi_data,
+            hist_avg_smart_a=hist_avg_smart_a, hist_count=hist_count,
         )
         return GenerateResponse(
             employee_id=request.employee_id, quarter=request.quarter,

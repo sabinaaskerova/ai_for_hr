@@ -88,6 +88,8 @@ async def generate_goals_stream(
     existing_goals: list[str],
     rag_chunks: list[dict],
     kpi_data: list[dict],
+    hist_avg_smart_a: Optional[float] = None,
+    hist_count: int = 0,
 ) -> AsyncGenerator[dict, None]:
     """Потоковая генерация целей — каждая готовая цель отдаётся как SSE событие."""
     user_msg, rag_context = await _build_user_msg(
@@ -128,6 +130,20 @@ async def generate_goals_stream(
                     "cascade_from": CascadeSource(manager_name=manager_name, manager_goal=best_mg)
                 })
 
+        # Проверка достижимости по историческим данным подразделения
+        MIN_HIST_SAMPLE = 10
+        if (
+            hist_count >= MIN_HIST_SAMPLE
+            and hist_avg_smart_a is not None
+            and goal.smart_scores is not None
+            and goal.smart_scores.achievable < hist_avg_smart_a - 0.25
+        ):
+            warnings.append(
+                f"Цель #{i+1}: достижимость ({goal.smart_scores.achievable:.2f}) "
+                f"ниже среднего по подразделению за прошлые периоды "
+                f"({hist_avg_smart_a:.2f}, n={hist_count}). Возможно, цель нереалистична."
+            )
+
         result_goals.append(goal)
         yield {"type": "goal", "index": i, "goal": goal.model_dump()}
 
@@ -167,6 +183,8 @@ async def generate_goals(
     existing_goals: list[str],
     rag_chunks: list[dict],
     kpi_data: list[dict],
+    hist_avg_smart_a: Optional[float] = None,
+    hist_count: int = 0,
 ) -> tuple[list[GeneratedGoal], list[str]]:
     """Генерация целей (не-стриминг версия, использует generate_goals_stream внутри)."""
     result_goals = []
@@ -177,6 +195,7 @@ async def generate_goals(
         focus_priorities=focus_priorities, n_goals=n_goals, manager_name=manager_name,
         manager_goals=manager_goals, existing_goals=existing_goals,
         rag_chunks=rag_chunks, kpi_data=kpi_data,
+        hist_avg_smart_a=hist_avg_smart_a, hist_count=hist_count,
     ):
         if event["type"] == "goal":
             result_goals.append(GeneratedGoal(**event["goal"]))
