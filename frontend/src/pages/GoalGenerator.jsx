@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Sparkles, Loader2, Search, User, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Sparkles, Loader2, Search, User, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
 import clsx from 'clsx'
 import GoalCard from '../components/GoalCard'
 import { getEmployees, getDepartments, saveGoal } from '../api/client'
@@ -26,6 +26,7 @@ export default function GoalGenerator() {
   const [acceptedIds, setAcceptedIds] = useState(new Set())
   const [rejectedIds, setRejectedIds] = useState(new Set())
   const [savedGoalIds, setSavedGoalIds] = useState({}) // index -> DB goal id
+  const [saveErrorIds, setSaveErrorIds] = useState(new Set())
 
   useEffect(() => {
     getDepartments().then(setDepts).catch(() => {})
@@ -61,6 +62,7 @@ export default function GoalGenerator() {
     setAcceptedIds(new Set())
     setRejectedIds(new Set())
     setSavedGoalIds({})
+    setSaveErrorIds(new Set())
 
     const collectedGoals = []
     let finalWarnings = []
@@ -335,14 +337,29 @@ export default function GoalGenerator() {
                       setSavedGoalIds((s) => ({ ...s, [i]: saved.id }))
                     } catch (e) {
                       console.error('Ошибка сохранения цели:', e)
+                      setSaveErrorIds((s) => new Set([...s, i]))
                     }
                   }}
                   onReject={() => setRejectedIds((s) => new Set([...s, i]))}
                 />
                 {acceptedIds.has(i) && (
-                  <div className="flex items-center gap-1.5 mt-1.5 text-emerald-600 text-xs font-medium px-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {savedGoalIds[i] ? `Сохранена в БД (ID: ${savedGoalIds[i]})` : 'Сохраняем...'}
+                  <div className="flex items-center gap-1.5 mt-1.5 text-xs font-medium px-1">
+                    {saveErrorIds.has(i) ? (
+                      <>
+                        <XCircle className="w-3.5 h-3.5 text-red-500" />
+                        <span className="text-red-500">Ошибка сохранения</span>
+                      </>
+                    ) : savedGoalIds[i] ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-600">Сохранена в БД (ID: {savedGoalIds[i]})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                        <span className="text-gray-400">Сохраняем...</span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
